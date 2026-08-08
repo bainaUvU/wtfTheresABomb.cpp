@@ -4,7 +4,6 @@
 #include <iostream>
 #include <map>
 #include <mutex>
-#include <queue>
 #include <thread>
 #include <vector>
 #include <random>
@@ -29,7 +28,6 @@ struct PlayerInfo {
     int sufferedDamage = 0;
     int causedDamage = 0;
     vector<string> backpack = {"Shovel", "Double"};
-    bool skipped = false;
 };
 struct ClientInfo {
     sockaddr_in addr;
@@ -105,7 +103,7 @@ void initSoil() {
     }
 }
 
-bool inGame = false;
+bool inGame = false, doSkip = false;
 
 void flipSoil(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr) {
     Soil s = soil[0];
@@ -149,6 +147,7 @@ void flipSoil(SOCKET serverSock, const string &playerName, const sockaddr_in &cl
             soil[i] = soil[i+1];
         }
         soil[7] = generateSoil();
+        doSkip = true;
     }
 }
 void drawCard(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr) {
@@ -184,6 +183,41 @@ void drawCard(SOCKET serverSock, const string &playerName, const sockaddr_in &cl
         }
         broadcastToClient(serverSock, "SYS[@] " + cci.result + " 获得了 " + cardMsg);
         clients[res].pInfo = pInfo;
+        doSkip = true;
+    }
+}
+void doubleBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr, const short pos) {
+    ClientCheckedInfo cci = searchForClient(clientAddr, playerName);
+    string res;
+    PlayerInfo pInfo;
+    if (cci.checkedType == FOUND_NAME) {
+        pInfo = clients[cci.result].pInfo;
+        res = cci.result;
+    }
+    if (cci.checkedType != FOUND_KEY) {
+        pInfo = clients[cci.key].pInfo;
+        res = cci.key;
+    }
+
+    if (cci.checkedType != NOT_FOUND) {
+        if (hasItem(pInfo.backpack, "Double") < 0) {
+            string sentMsg = "SYS[#] 你没有足够的 Double 翻倍土块里的炸弹";
+            sendMessage(serverSock, sentMsg, clientAddr);
+            return;
+        }
+        if (pos < 0 || pos > 7) {
+            string sentMsg = "SYS[#] 这个位置不合理吧...";
+            sendMessage(serverSock, sentMsg, clientAddr);
+            return;
+        }
+        soil[pos].damage *= 2;
+        soil[pos].doubled = true;
+        soil[pos].owner = cci.result;
+        eraseItem(pInfo.backpack, "Double");
+        clients[cci.result].pInfo = pInfo;
+
+        broadcastToClient(serverSock, "SYS[@] " + cci.result + " 翻倍了土块 " + (char) (pos + '0') + " 里的炸弹！");
+        doSkip = true;
     }
 }
 
@@ -337,8 +371,6 @@ void handleMessage(SOCKET serverSock, const string &message, const sockaddr_in &
 }
 
 int main() {
-    srand(time(NULL));
-
     if (!initWinsock()) {
         cout << "你的Winsock好像只剩下8.6（有1.4了诶";
         return -1;
