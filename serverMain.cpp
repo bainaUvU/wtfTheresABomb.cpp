@@ -16,17 +16,22 @@ struct Probability {
 const int BUFFER_SIZE = 1024;
 const string PRINTLINE = "---------------------------";
 const map<string, Probability> CARD_POOL = {
-    {"Shovel", Probability{.minn = 67, .maxn = 100}},
-    {"Double", Probability{.minn = 45, .maxn = 67}},
-    {"MetalDetector", Probability{.minn = 24, .maxn = 45}},
-    {"MedKit", Probability{.minn = 12, .maxn = 24}},
-    {"FryingPan", Probability{.minn = 0, .maxn = 12}}
+    {"Shovel", Probability{.minn = 77, .maxn = 100}},
+    {"Double", Probability{.minn = 55, .maxn = 77}},
+    {"MetalDetector", Probability{.minn = 34, .maxn = 55}},
+    {"MedKit", Probability{.minn = 22, .maxn = 34}},
+    {"FryingPan", Probability{.minn = 10, .maxn = 22}},
+    {"Magnifier", Probability{.minn = 0, .maxn = 5}},
+    {"FishingHook", Probability{.minn = 0, .maxn = 5}}
 };
+
+const string AVAILABLE_CARDS[] = {"Shovel", "Double", "MetalDetector", "MedKit", "FryingPan", "Magnifier", "FishingHook"};
 
 struct PlayerInfo {
     int health = 5, score = 0;
     int sufferedDamage = 0;
     int causedDamage = 0;
+    int damageReduction = 0;
     vector<string> backpack = {"Shovel", "Double"};
 };
 struct ClientInfo {
@@ -103,7 +108,14 @@ void initSoil() {
     }
 }
 
-bool inGame = false, doSkip = false;
+bool inGame = false, doSkip = false, finished = false;
+int plrInd, turns, causeOfD = -1, plrN;
+vector<pair<string, string>> shuffledP;
+
+enum CauseOfDeath {
+    BOMB = 238,
+    HOOK = 239
+};
 
 void flipSoil(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr) {
     Soil s = soil[0];
@@ -128,13 +140,23 @@ void flipSoil(SOCKET serverSock, const string &playerName, const sockaddr_in &cl
         string sentMsg;
         if (s.damage) {
             pInfo.sufferedDamage += s.damage;
-            pInfo.health -= s.damage;
+            if (pInfo.damageReduction) {
+                if (pInfo.damageReduction > s.damage) pInfo.damageReduction -= s.damage;
+                else {
+                    pInfo.health -= s.damage - pInfo.damageReduction;
+                    pInfo.damageReduction = 0;
+                }
+            } else pInfo.health -= s.damage;
 
             if (s.doubled && s.owner != cci.result) {
                 pInfo.causedDamage += s.damage;
             }
             sentMsg = "SYS[#] 哎呀坏了坏了，是炸弹啊我去\n> [#] 炸弹对 ";
             sentMsg += cci.result + " 造成了 " + to_string(s.damage) + " 点伤害";
+            causeOfD = -1;
+            if (pInfo.health <= 0) {
+                causeOfD = BOMB;
+            }
         } else {
             sentMsg = "SYS[#] 土块里什么都没有，无事发生捏";
         }
@@ -220,6 +242,39 @@ void doubleBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &
         doSkip = true;
     }
 }
+void metalDetect(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr) {
+    ClientCheckedInfo cci = searchForClient(clientAddr, playerName);
+    string res;
+    PlayerInfo pInfo;
+    if (cci.checkedType == FOUND_NAME) {
+        pInfo = clients[cci.result].pInfo;
+        res = cci.result;
+    }
+    if (cci.checkedType != FOUND_KEY) {
+        pInfo = clients[cci.key].pInfo;
+        res = cci.key;
+    }
+
+    if (cci.checkedType != NOT_FOUND) {
+        if (hasItem(pInfo.backpack, "MetalDetector") < 0) {
+            string sentMsg = "SYS[#] 你没有足够的 MetalDetector 勘探土块";
+            sendMessage(serverSock, sentMsg, clientAddr);
+            return;
+        }
+        random_device rd;
+        mt19937 gen(rd()), genP(rd());
+        uniform_int_distribution<> disSum(0, 3), disProb(1, 15);
+        int pos = disSum(gen), glitch = disProb(genP);
+        Soil s = soil[pos]; int damage = s.damage;
+        if (damage > 0 && glitch == 1) damage = 0;
+        else if (damage == 0 && glitch == 1) damage = 1;
+
+        string sentMsg = "SYS[@] 探测仪偷偷告诉你：土块 " + to_string(pos) + " 里";
+        if (damage > 0) sentMsg += "有 " + to_string(damage) + " 颗炸弹";
+        else sentMsg += "什么也没有";
+        sendMessage(serverSock, sentMsg, clientAddr);
+    }
+}
 
 bool initWinsock() {
     WSADATA wsaData; int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
@@ -247,7 +302,7 @@ SOCKET startUdpServer(unsigned short port) {
 string getClientKey(const sockaddr_in &clientAddr) {
     return string(inet_ntoa(clientAddr.sin_addr)) + ":" + to_string(ntohs(clientAddr.sin_port));
 }
-void handleMessage(SOCKET serverSock, const string &message, const sockaddr_in &clientAddr);
+void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &clientAddr);
 void receiveMessage(SOCKET serverSock) {
     char buffer[BUFFER_SIZE];
     sockaddr_in clientAddr;
@@ -266,7 +321,15 @@ bool command(const string& message, const string& command) {
     return message.substr(0, command.size()) == command;
 }
 
-void handleMessage(SOCKET serverSock, const string &message, const sockaddr_in &clientAddr) {
+void handlePlayer(SOCKET serverSock);
+bool checkTurn(SOCKET serverSock, const string &playerName, sockaddr_in &clientAddr) {
+    if (shuffledP[plrInd].second != playerName) {
+        sendMessage(serverSock, "SYS[#] 还没有轮到你呢", clientAddr);
+        return false;
+    }
+    return true;
+}
+void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &clientAddr) {
     string key = getClientKey(clientAddr);
     string clientIp = inet_ntoa(clientAddr.sin_addr);
     int clientPort = ntohs(clientAddr.sin_port);
@@ -298,6 +361,7 @@ void handleMessage(SOCKET serverSock, const string &message, const sockaddr_in &
             cout << "> [@] 还有 " << clients.size() << " 个玩家" << endl;
             sentMsg = "[#] 你的端口号: " + clientIp + ":" + to_string(clientPort);
             sendMessage(serverSock, sentMsg, clientAddr);
+            return;
         }
     }
     if (command(message, "QUIT")) {
@@ -316,6 +380,7 @@ void handleMessage(SOCKET serverSock, const string &message, const sockaddr_in &
         }
 
         if (cci.checkedType != NOT_FOUND) cout << "> [@] 还有 " << clients.size() << " 个玩家" << endl;
+        return;
     }
     if (command(message, "CHAT")) {
         int msgLen = stoi(message.substr(4, 2));
@@ -324,6 +389,7 @@ void handleMessage(SOCKET serverSock, const string &message, const sockaddr_in &
         string sentMsg = "[@] " + playerName + " : " + msg;
         cout << sentMsg << endl;
         broadcastToClient(serverSock, "SYS" + sentMsg);
+        return;
     }
     if (command(message, "SHOWINFO")) {
         if (inGame) {
@@ -353,20 +419,133 @@ void handleMessage(SOCKET serverSock, const string &message, const sockaddr_in &
                 cout << "[#] " << name << " 查询了自己的信息" << endl;
                 sentMsg = "SYS[@] " + sentMsg;
                 sendMessage(serverSock, sentMsg, clientAddr);
+                return;
             }
         } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
     }
     if (command(message, "FLIP")) {
         if (inGame) {
             string playerName = message.substr(4);
-            flipSoil(serverSock, playerName, clientAddr);
+            if (checkTurn(serverSock, playerName, clientAddr)) flipSoil(serverSock, playerName, clientAddr);
         } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
     }
     if (command(message, "DRAW")) {
         if (inGame) {
             string playerName = message.substr(4);
-            drawCard(serverSock, playerName, clientAddr);
+            if (checkTurn(serverSock, playerName, clientAddr)) (serverSock, playerName, clientAddr);
         } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
+    }
+    if (command(message, "DOUBLE")) {
+        if (inGame) {
+            int pos = message[6] - '0';
+            string playerName = message.substr(7);
+            if (checkTurn(serverSock, playerName, clientAddr)) doubleBomb(serverSock, playerName, clientAddr, pos);
+        } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
+    }
+    if (command(message, "DETECT")) {
+        if (inGame) {
+            string playerName = message.substr(6);
+            if (checkTurn(serverSock, playerName, clientAddr)) metalDetect(serverSock, playerName, clientAddr);
+        } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
+    }
+    if (command(message, "MEDKIT")) {
+        if (inGame) {
+            string playerName = message.substr(6);
+            if (checkTurn(serverSock, playerName, clientAddr)) {
+                ClientCheckedInfo cci = searchForClient(clientAddr, playerName);
+                PlayerInfo pInfo; string res;
+                if (cci.checkedType == FOUND_NAME) {
+                    pInfo = clients[cci.result].pInfo;
+                    res = cci.result;
+                }
+                if (cci.checkedType != FOUND_KEY) {
+                    pInfo = clients[cci.key].pInfo;
+                    res = cci.key;
+                }
+
+                if (cci.checkedType != NOT_FOUND) {
+                    if (hasItem(pInfo.backpack, "MedKit") < 0) {
+                        string sentMsg = "SYS[#] 你没有足够的 MedKit 恢复血量";
+                        sendMessage(serverSock, sentMsg, clientAddr);
+                        return;
+                    }
+                    pInfo.health += 2;
+                    string sentMsg = "SYS[#] " + cci.result + " 使用 MedKit 恢复了 2 点体力！";
+                    broadcastToClient(serverSock, sentMsg);
+                    eraseItem(pInfo.backpack, "MedKit");
+                    clients[res].pInfo = pInfo;
+                    doSkip = true;
+                }
+            }
+        } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
+    }
+    if (command(message, "PAN")) {
+        if (inGame) {
+            string playerName = message.substr(3);
+            if (checkTurn(serverSock, playerName, clientAddr)) {
+                ClientCheckedInfo cci = searchForClient(clientAddr, playerName);
+                PlayerInfo pInfo; string res;
+                if (cci.checkedType == FOUND_NAME) {
+                    pInfo = clients[cci.result].pInfo;
+                    res = cci.result;
+                }
+                if (cci.checkedType != FOUND_KEY) {
+                    pInfo = clients[cci.key].pInfo;
+                    res = cci.key;
+                }
+
+                if (cci.checkedType != NOT_FOUND) {
+                    if (hasItem(pInfo.backpack, "FryingPan") < 0) {
+                        string sentMsg = "SYS[#] 你没有足够的 FryingPan 提升抗性";
+                        sendMessage(serverSock, sentMsg, clientAddr);
+                        return;
+                    }
+                    pInfo.health += 2;
+                    string sentMsg = "SYS[#] " + cci.result + " 使用 FryingPan 获得了 2 点伤害减免！";
+                    broadcastToClient(serverSock, sentMsg);
+                    eraseItem(pInfo.backpack, "FryingPan");
+                    clients[res].pInfo = pInfo;
+                    doSkip = true;
+                }
+            }
+        } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
+    }
+    if (inGame) handlePlayer(serverSock);
+}
+void handlePlayer(SOCKET serverSock) {
+    if (plrInd >= 0 && clients[shuffledP[plrInd].first].pInfo.health <= 0) {
+        string deathMsg;
+        switch (causeOfD) {
+            case BOMB:
+                deathMsg = " 跟土块爆了，就此倒地不起"; break;
+            case HOOK:
+                deathMsg = " 钓鱼的时候掉到水里了"; break;
+            default:
+                deathMsg = " 倒地不起了"; break;
+        }
+        broadcastToClient(serverSock, "SYS[#] " + shuffledP[plrInd].second + deathMsg);
+    }
+
+    int remainP = 0;
+    string winner;
+    for (auto &p : clients) {
+        PlayerInfo pInfo = p.second.pInfo;
+        if (pInfo.health > 0) {
+            remainP ++;
+            winner = p.second.name;
+        } else {
+            pInfo.score = turns * 2 - pInfo.sufferedDamage + pInfo.causedDamage * 3;
+            p.second.pInfo = pInfo;
+        }
+    }
+    if (remainP == 1) {
+        finished = true;
+    } else if (doSkip) {
+        cout << plrInd << endl;
+        plrInd = (plrInd + 1) % plrN, turns ++;
+        broadcastToClient(serverSock, "SYS[#] 轮到 " + shuffledP[plrInd].second + " 出牌");
+        cout << plrInd << endl;
+        doSkip = false;
     }
 }
 
@@ -395,6 +574,10 @@ int main() {
             string command = opt.substr(1);
             if (command == "quit") break;
             if (command == "start" && ! inGame) {
+                doSkip = true;
+                plrInd = -1;
+                shuffledP.clear();
+
                 cout << "[@] 游戏开始！" << endl;
                 broadcastToClient(serverSock, "SYS[#] 游戏开始！\n" + PRINTLINE);
                 initSoil();
@@ -404,6 +587,7 @@ int main() {
                 uniform_int_distribution<> disCard(0, 100);
                 int cardNum = max(2, (int) (clients.size() / 2 + 1));
                 for (auto &p : clients) {
+                    shuffledP.push_back({p.first, p.second.name});
                     for (int _ = 0; _ < cardNum; _ ++) {
                         string cRes = "Shovel";
                         int pRand = disCard(gen);
@@ -424,6 +608,9 @@ int main() {
                     sentMsg = "SYS[@] " + sentMsg;
                     sendMessage(serverSock, sentMsg, p.second.addr);
                     inGame = true;
+
+                    plrN = clients.size();
+                    handlePlayer(serverSock);
                 }
             }
         }

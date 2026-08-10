@@ -113,11 +113,12 @@ int main() {
             if (command == "showInfo") sendMessage(clientSock, "SHOWINFO", playerName);
             if (command == "flip") sendMessage(clientSock, "FLIP", playerName);
             if (command == "draw") sendMessage(clientSock, "DRAW", playerName);
+            if (command == "detect") sendMessage(clientSock, "DETECT", playerName);
             if (command == "double") {
                 int pos; cin >> pos;
-                sendMessage(clientSock, "DOUBLE", (char) (pos + '0') + playerName);
+                sendMessage(clientSock, "DOUBLE", (char) (pos % 10 + '0') + playerName);
             }
-            if (command == "medkit") sendMessage(clientSock, "MEDKIT", playerName);
+            if (command == "medKit") sendMessage(clientSock, "MEDKIT", playerName);
             if (command == "fryingPan") sendMessage(clientSock, "PAN", playerName);
             if (command == "magnifier") {
                 string bName; cin >> bName;
@@ -127,7 +128,7 @@ int main() {
                 else nameLen = to_string(length);
                 sendMessage(clientSock, "MAGNIFIER", nameLen + bName + playerName);
             }
-            if (command == "hook") {
+            if (command == "fishingHook") {
                 string bName; cin >> bName;
                 int length;
                 length = bName.size();
