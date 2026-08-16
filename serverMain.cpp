@@ -16,16 +16,17 @@ struct Probability {
 const int BUFFER_SIZE = 1024;
 const string PRINTLINE = "---------------------------";
 const map<string, Probability> CARD_POOL = {
-    {"Shovel", Probability{.minn = 77, .maxn = 100}},
-    {"Double", Probability{.minn = 55, .maxn = 77}},
-    {"MetalDetector", Probability{.minn = 34, .maxn = 55}},
-    {"MedKit", Probability{.minn = 22, .maxn = 34}},
-    {"FryingPan", Probability{.minn = 10, .maxn = 22}},
-    {"Magnifier", Probability{.minn = 0, .maxn = 5}},
-    {"FishingHook", Probability{.minn = 0, .maxn = 5}}
+    {"Shovel", Probability{.minn = 82, .maxn = 100}},
+    {"Double", Probability{.minn = 60, .maxn = 82}},
+    {"MetalDetector", Probability{.minn = 39, .maxn = 60}},
+    {"MedKit", Probability{.minn = 27, .maxn = 39}},
+    {"FryingPan", Probability{.minn = 17, .maxn = 27}},
+    {"Magnifier", Probability{.minn = 11, .maxn = 17}},
+    {"FishingHook", Probability{.minn = 5, .maxn = 11}},
+    {"Bomb", Probability{.minn = 0, .maxn = 5}},
 };
 
-const string AVAILABLE_CARDS[] = {"Shovel", "Double", "MetalDetector", "MedKit", "FryingPan", "Magnifier", "FishingHook"};
+const string AVAILABLE_CARDS[] = {"Shovel", "Double", "MetalDetector", "MedKit", "FryingPan", "Magnifier", "FishingHook", "Bomb"};
 
 struct PlayerInfo {
     int health = 5, score = 0;
@@ -81,8 +82,21 @@ void broadcastToClient(SOCKET serverSock, const string &msg, const string &name 
 }
 
 int hasItem(const vector<string> &backpack, const string &item) {
+    for (auto i : clients)
+    {
+        for (auto p : i.second.pInfo.backpack)
+        {
+            cout << p << " " ;
+        }
+        cout << endl;
+    }
+    cout << "check: " << backpack.size() << " : " << item << endl;
     for (int i = 0; i < backpack.size(); i++) {
-        if (backpack[i] == item) return i;
+        cout << backpack[i] << endl;
+        if (backpack[i] == item) {
+            cout << "found item: " << i << endl;
+            return i;
+        }
     }
     return -1;
 }
@@ -239,6 +253,7 @@ void doubleBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &
         clients[cci.result].pInfo = pInfo;
 
         broadcastToClient(serverSock, "SYS[@] " + cci.result + " 翻倍了土块 " + (char) (pos + '0') + " 里的炸弹！");
+        clients[res].pInfo = pInfo;
         doSkip = true;
     }
 }
@@ -273,6 +288,7 @@ void metalDetect(SOCKET serverSock, const string &playerName, const sockaddr_in 
         if (damage > 0) sentMsg += "有 " + to_string(damage) + " 颗炸弹";
         else sentMsg += "什么也没有";
         sendMessage(serverSock, sentMsg, clientAddr);
+        clients[res].pInfo = pInfo;
     }
 }
 
@@ -323,7 +339,7 @@ bool command(const string& message, const string& command) {
 
 void handlePlayer(SOCKET serverSock);
 bool checkTurn(SOCKET serverSock, const string &playerName, sockaddr_in &clientAddr) {
-    if (shuffledP[plrInd].second != playerName) {
+    if (plrInd >= 0 && shuffledP[plrInd].second != playerName) {
         sendMessage(serverSock, "SYS[#] 还没有轮到你呢", clientAddr);
         return false;
     }
@@ -432,7 +448,7 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
     if (command(message, "DRAW")) {
         if (inGame) {
             string playerName = message.substr(4);
-            if (checkTurn(serverSock, playerName, clientAddr)) (serverSock, playerName, clientAddr);
+            if (checkTurn(serverSock, playerName, clientAddr)) drawCard(serverSock, playerName, clientAddr);
         } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
     }
     if (command(message, "DOUBLE")) {
@@ -541,10 +557,8 @@ void handlePlayer(SOCKET serverSock) {
     if (remainP == 1) {
         finished = true;
     } else if (doSkip) {
-        cout << plrInd << endl;
         plrInd = (plrInd + 1) % plrN, turns ++;
         broadcastToClient(serverSock, "SYS[#] 轮到 " + shuffledP[plrInd].second + " 出牌");
-        cout << plrInd << endl;
         doSkip = false;
     }
 }
@@ -610,11 +624,14 @@ int main() {
                     inGame = true;
 
                     plrN = clients.size();
+                    Sleep(80);
                     handlePlayer(serverSock);
                 }
             }
         }
     }
+    broadcastToClient(serverSock, "SERVEROVER");
+    Sleep(150);
     closesocket(serverSock);
     WSACleanup();
     return 0;

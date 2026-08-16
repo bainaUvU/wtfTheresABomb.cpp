@@ -57,7 +57,7 @@ Magnifier 会给你提供一次偷窥别人的手牌的机会， 而 FishingHook
  - #flip 指令*用于翻开土块 0
  - #double _pos 指令*用于翻倍土块 _pos 里的炸弹（ 0 <= _pos <= 7 )
  - #detect 指令*用于使用金属探测仪
- - #medkit 指令*用于使用急救包
+ - #medKit 指令*用于使用急救包
  - #fryingPan 指令*用于使用平底锅
  - #magnifier _playerName 指令*用于使用放大镜偷窥玩家 _playerName 的手牌（ 必须是一个存在的玩家
  - #fishingHook _playerName _card 指令*用于使用鱼钩勾走 _playerName 的一张手牌 _card \
