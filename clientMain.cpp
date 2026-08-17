@@ -42,7 +42,9 @@ bool connectToServer(SOCKET clientSock, string serverIp, unsigned int port) {
 
     char buffer[BUFFER_SIZE];
     memset(buffer, 0, BUFFER_SIZE);
-    int recvLen = recv(clientSock, buffer, BUFFER_SIZE - 1, 0);
+
+    int addrLen = sizeof(serverAddr);
+    int recvLen = recvfrom(clientSock, buffer, BUFFER_SIZE - 1, 0, (sockaddr *) &serverAddr, &addrLen);
     if (recvLen > 0) {
         buffer[recvLen] = '\0';
         string msg(buffer);
@@ -90,7 +92,8 @@ int main() {
     string serverIp; cin >> serverIp;
     cout << "输入服务端的端口号... ";
     int port; cin >> port;
-    setsockopt(clientSock, SOL_SOCKET, SO_RCVTIMEO, (char*) &CONNECT_TIMEOUT, sizeof(CONNECT_TIMEOUT));
+    timeval tv = {CONNECT_TIMEOUT, 0};
+    setsockopt(clientSock, SOL_SOCKET, SO_RCVTIMEO, (char*) &tv, sizeof(tv));
     if (!connectToServer(clientSock, serverIp, port)) {
         cout << "你并没有连接上关于 " << serverIp << ":" << port << " 的服务端" << endl;
         cout << "可能是服务端爆炸了捏 QwQ";

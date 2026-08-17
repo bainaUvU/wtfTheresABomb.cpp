@@ -1,6 +1,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
+#include <algorithm>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -29,7 +30,7 @@ const map<string, Probability> CARD_POOL = {
 const string AVAILABLE_CARDS[] = {"Shovel", "Double", "MetalDetector", "MedKit", "FryingPan", "Magnifier", "FishingHook", "Bomb"};
 
 struct PlayerInfo {
-    int health = 5, score = 0;
+    int health = 1, score = 0;
     int sufferedDamage = 0;
     int causedDamage = 0;
     int damageReduction = 0;
@@ -40,8 +41,19 @@ struct ClientInfo {
     string name;
     PlayerInfo pInfo;
 };
+bool compareP (pair<string, ClientInfo> a, pair<string, ClientInfo> b) {
+    if (a.second.pInfo.score == b.second.pInfo.score) return a.first < b.first;
+    return a.second.pInfo.score > b.second.pInfo.score;
+}
+
 map<string, ClientInfo> clients;
 mutex clientsMutex;
+mutex gameMutex;
+
+string getClientKey(const sockaddr_in &clientAddr) {
+    return string(inet_ntoa(clientAddr.sin_addr)) + ":" + to_string(ntohs(clientAddr.sin_port));
+}
+
 enum SearchedResultType {
     FOUND_NAME = 1,
     FOUND_KEY = 2,
@@ -50,22 +62,19 @@ enum SearchedResultType {
 struct ClientCheckedInfo {
     int checkedType;
     string result, key;
-}; ClientCheckedInfo searchForClient(const sockaddr_in &clientAddr, const string &name) {
+};
+ClientCheckedInfo searchForClient(const sockaddr_in &clientAddr, const string &name) {
     auto it = clients.find(name);
     if (it != clients.end()) {
         return ClientCheckedInfo{.checkedType = FOUND_NAME, .result = name};
     }
 
-    string key, pName;
+    string fullKey = getClientKey(clientAddr);  // "127.0.0.1:54321"
     for (auto &p : clients) {
-        if (p.second.addr.sin_addr.s_addr == clientAddr.sin_addr.s_addr) {
-            key = p.first;
-            pName = p.second.name;
-            break;
+        if (p.first.empty()) continue;
+        if (getClientKey(p.second.addr) == fullKey) {
+            return ClientCheckedInfo{.checkedType = FOUND_KEY, .result = p.second.name, .key = p.first};
         }
-    }
-    if (! key.empty()) {
-        return ClientCheckedInfo{.checkedType = FOUND_KEY, .result = pName, .key = key};
     }
     return ClientCheckedInfo{.checkedType = NOT_FOUND};
 }
@@ -82,17 +91,7 @@ void broadcastToClient(SOCKET serverSock, const string &msg, const string &name 
 }
 
 int hasItem(const vector<string> &backpack, const string &item) {
-    for (auto i : clients)
-    {
-        for (auto p : i.second.pInfo.backpack)
-        {
-            cout << p << " " ;
-        }
-        cout << endl;
-    }
-    cout << "check: " << backpack.size() << " : " << item << endl;
     for (int i = 0; i < backpack.size(); i++) {
-        cout << backpack[i] << endl;
         if (backpack[i] == item) {
             cout << "found item: " << i << endl;
             return i;
@@ -217,6 +216,7 @@ void drawCard(SOCKET serverSock, const string &playerName, const sockaddr_in &cl
             pInfo.backpack.push_back(cRes);
             cardMsg += cRes + " ";
         }
+        cout << "[#] " << cci.result << " 做了一次抽牌" << endl;
         broadcastToClient(serverSock, "SYS[@] " + cci.result + " 获得了 " + cardMsg);
         clients[res].pInfo = pInfo;
         doSkip = true;
@@ -230,7 +230,7 @@ void doubleBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &
         pInfo = clients[cci.result].pInfo;
         res = cci.result;
     }
-    if (cci.checkedType != FOUND_KEY) {
+    if (cci.checkedType == FOUND_KEY) {
         pInfo = clients[cci.key].pInfo;
         res = cci.key;
     }
@@ -252,6 +252,7 @@ void doubleBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &
         eraseItem(pInfo.backpack, "Double");
         clients[cci.result].pInfo = pInfo;
 
+        cout << "[#] " << cci.result << " 翻倍了土块 " << (char) (pos + '0') << " 里的炸弹" << endl;
         broadcastToClient(serverSock, "SYS[@] " + cci.result + " 翻倍了土块 " + (char) (pos + '0') + " 里的炸弹！");
         clients[res].pInfo = pInfo;
         doSkip = true;
@@ -265,7 +266,7 @@ void metalDetect(SOCKET serverSock, const string &playerName, const sockaddr_in 
         pInfo = clients[cci.result].pInfo;
         res = cci.result;
     }
-    if (cci.checkedType != FOUND_KEY) {
+    if (cci.checkedType == FOUND_KEY) {
         pInfo = clients[cci.key].pInfo;
         res = cci.key;
     }
@@ -284,6 +285,7 @@ void metalDetect(SOCKET serverSock, const string &playerName, const sockaddr_in 
         if (damage > 0 && glitch == 1) damage = 0;
         else if (damage == 0 && glitch == 1) damage = 1;
 
+        cout << "[#] " << cci.result << " 使用了探测仪" << endl;
         string sentMsg = "SYS[@] 探测仪偷偷告诉你：土块 " + to_string(pos) + " 里";
         if (damage > 0) sentMsg += "有 " + to_string(damage) + " 颗炸弹";
         else sentMsg += "什么也没有";
@@ -314,10 +316,6 @@ SOCKET startUdpServer(unsigned short port) {
     }
     return sock;
 }
-
-string getClientKey(const sockaddr_in &clientAddr) {
-    return string(inet_ntoa(clientAddr.sin_addr)) + ":" + to_string(ntohs(clientAddr.sin_port));
-}
 void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &clientAddr);
 void receiveMessage(SOCKET serverSock) {
     char buffer[BUFFER_SIZE];
@@ -346,6 +344,7 @@ bool checkTurn(SOCKET serverSock, const string &playerName, sockaddr_in &clientA
     return true;
 }
 void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &clientAddr) {
+    lock_guard glock(gameMutex);
     string key = getClientKey(clientAddr);
     string clientIp = inet_ntoa(clientAddr.sin_addr);
     int clientPort = ntohs(clientAddr.sin_port);
@@ -377,7 +376,6 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
             cout << "> [@] 还有 " << clients.size() << " 个玩家" << endl;
             sentMsg = "[#] 你的端口号: " + clientIp + ":" + to_string(clientPort);
             sendMessage(serverSock, sentMsg, clientAddr);
-            return;
         }
     }
     if (command(message, "QUIT")) {
@@ -396,7 +394,16 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
         }
 
         if (cci.checkedType != NOT_FOUND) cout << "> [@] 还有 " << clients.size() << " 个玩家" << endl;
-        return;
+        if (inGame) {
+            for (int i = 0; i < shuffledP.size(); i ++) {
+                if (shuffledP[i].second == playerName) {
+                    if (playerName == shuffledP[i].second) doSkip = true;
+                    shuffledP.erase(shuffledP.begin() + i);
+                    break;
+                }
+            }
+            plrN --;
+        }
     }
     if (command(message, "CHAT")) {
         int msgLen = stoi(message.substr(4, 2));
@@ -474,7 +481,7 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
                     pInfo = clients[cci.result].pInfo;
                     res = cci.result;
                 }
-                if (cci.checkedType != FOUND_KEY) {
+                if (cci.checkedType == FOUND_KEY) {
                     pInfo = clients[cci.key].pInfo;
                     res = cci.key;
                 }
@@ -487,6 +494,8 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
                     }
                     pInfo.health += 2;
                     string sentMsg = "SYS[#] " + cci.result + " 使用 MedKit 恢复了 2 点体力！";
+
+                    cout << "[#] " << cci.result << " 使用了急救箱" << endl;
                     broadcastToClient(serverSock, sentMsg);
                     eraseItem(pInfo.backpack, "MedKit");
                     clients[res].pInfo = pInfo;
@@ -505,7 +514,7 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
                     pInfo = clients[cci.result].pInfo;
                     res = cci.result;
                 }
-                if (cci.checkedType != FOUND_KEY) {
+                if (cci.checkedType == FOUND_KEY) {
                     pInfo = clients[cci.key].pInfo;
                     res = cci.key;
                 }
@@ -518,6 +527,7 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
                     }
                     pInfo.health += 2;
                     string sentMsg = "SYS[#] " + cci.result + " 使用 FryingPan 获得了 2 点伤害减免！";
+                    cout << "[#] " << cci.result << " 使用了平底锅" << endl;
                     broadcastToClient(serverSock, sentMsg);
                     eraseItem(pInfo.backpack, "FryingPan");
                     clients[res].pInfo = pInfo;
@@ -543,21 +553,48 @@ void handlePlayer(SOCKET serverSock) {
     }
 
     int remainP = 0;
-    string winner;
+    string winner, winnerKey;
     for (auto &p : clients) {
         PlayerInfo pInfo = p.second.pInfo;
         if (pInfo.health > 0) {
             remainP ++;
             winner = p.second.name;
+            winnerKey = p.first;
         } else {
             pInfo.score = turns * 2 - pInfo.sufferedDamage + pInfo.causedDamage * 3;
-            p.second.pInfo = pInfo;
+            clients[p.first].pInfo = pInfo;
         }
     }
     if (remainP == 1) {
         finished = true;
+
+        PlayerInfo pInfo = clients[winnerKey].pInfo;
+        pInfo.score = turns * 2 - pInfo.sufferedDamage + pInfo.causedDamage * 3 + 15;
+        clients[winnerKey].pInfo = pInfo;
+        string sentMsg = "[#] 我嘞个豆！ " + winner + " 在狂轰滥炸之下幸存了下来！\n" + PRINTLINE + "\n";
+        vector<pair<string, ClientInfo>> playerList;
+        for (auto &p : clients) {
+            playerList.push_back({p.second.name, p.second});
+        }
+        sort(playerList.begin(), playerList.end(), compareP);
+        for (int i = 0; i < playerList.size(); i ++) {
+            sentMsg += "> [#] " + to_string(i + 1);
+            if (i == 0) sentMsg += "st ";
+            else if (i == 1) sentMsg += "nd ";
+            else if (i == 2) sentMsg += "rd ";
+            else sentMsg += "th ";
+            sentMsg += playerList[i].first + " : 最终得分 " + to_string(playerList[i].second.pInfo.score);
+            sentMsg += " 共造成" + to_string(playerList[i].second.pInfo.causedDamage) + "点伤害，共收到 " + to_string(playerList[i].second.pInfo.sufferedDamage) + " 点伤害\n";
+        }
+        sentMsg += PRINTLINE + "\n游戏结束，请自己退出.png";
+        cout << sentMsg << endl;
+        broadcastToClient(serverSock, "SYS" + sentMsg);
     } else if (doSkip) {
-        plrInd = (plrInd + 1) % plrN, turns ++;
+        plrInd = (plrInd + 1) % plrN;
+        while (plrInd >= 0 && clients[shuffledP[plrInd].first].pInfo.health <= 0) {
+            plrInd = (plrInd + 1) % plrN;
+        }
+        turns ++;
         broadcastToClient(serverSock, "SYS[#] 轮到 " + shuffledP[plrInd].second + " 出牌");
         doSkip = false;
     }
@@ -588,6 +625,7 @@ int main() {
             string command = opt.substr(1);
             if (command == "quit") break;
             if (command == "start" && ! inGame) {
+                lock_guard glock(gameMutex);
                 doSkip = true;
                 plrInd = -1;
                 shuffledP.clear();
@@ -600,8 +638,9 @@ int main() {
                 mt19937 gen(rd());
                 uniform_int_distribution<> disCard(0, 100);
                 int cardNum = max(2, (int) (clients.size() / 2 + 1));
-                for (auto &p : clients) {
+                for (auto p : clients) {
                     shuffledP.push_back({p.first, p.second.name});
+                    PlayerInfo pInfo = p.second.pInfo;
                     for (int _ = 0; _ < cardNum; _ ++) {
                         string cRes = "Shovel";
                         int pRand = disCard(gen);
@@ -612,25 +651,30 @@ int main() {
                             }
                         }
 
-                        p.second.pInfo.backpack.push_back(cRes);
+                        pInfo.backpack.push_back(cRes);
                     }
+                    clients[p.first].pInfo = pInfo;
 
                     string sentMsg = p.second.name + " : 还有 " + to_string(p.second.pInfo.health) + " 点体力 \n";
                     sentMsg += "> [@] 你还有手牌 ";
-                    for (auto &s : p.second.pInfo.backpack) sentMsg += s + " ";
+                    string consoleMsg = "[@] " + p.second.name + " 还有手牌 ";
+                    for (auto &s : clients[p.first].pInfo.backpack) {
+                        sentMsg += s + " ";
+                        consoleMsg += s + " ";
+                    }
                     sentMsg += "\n" + PRINTLINE;
                     sentMsg = "SYS[@] " + sentMsg;
                     sendMessage(serverSock, sentMsg, p.second.addr);
-                    inGame = true;
-
-                    plrN = clients.size();
-                    Sleep(80);
-                    handlePlayer(serverSock);
+                    cout << consoleMsg << endl;
                 }
+                inGame = true;
+
+                plrN = clients.size();
+                Sleep(80);
+                handlePlayer(serverSock);
             }
         }
     }
-    broadcastToClient(serverSock, "SERVEROVER");
     Sleep(150);
     closesocket(serverSock);
     WSACleanup();
