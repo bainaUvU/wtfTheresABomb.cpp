@@ -123,8 +123,7 @@ int plrInd, turns, causeOfD = -1, plrN;
 vector<pair<string, string>> shuffledP;
 
 enum CauseOfDeath {
-    BOMB = 238,
-    HOOK = 239
+    BOMB = 238
 };
 
 void flipSoil(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr) {
@@ -382,6 +381,7 @@ void getchItem(SOCKET serverSock, const string &playerName, const sockaddr_in &c
             return;
         }
         PlayerInfo rPInfo = clients[recipient].pInfo;
+        cout << "[#] " << cci.result << " 使用了鱼钩试图偷走 " << recipient << " 的手牌 " + item << endl;
         if (hasItem(rPInfo.backpack, item) < 0) {
             string sentMsg = "SYS[#] 邪恶的 " + playerName + " 试图偷走 " + recipient + " 的 " + item + " ，然而 " + recipient + " 并没有这张牌";
             sendMessage(serverSock, sentMsg, clientAddr);
@@ -393,6 +393,43 @@ void getchItem(SOCKET serverSock, const string &playerName, const sockaddr_in &c
             sendMessage(serverSock, sentMsg, clientAddr);
         }
         eraseItem(pInfo.backpack, "FishingHook");
+        clients[res].pInfo = pInfo;
+        doSkip = true;
+    }
+}
+void plantBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr, const int pos) {
+    ClientCheckedInfo cci = searchForClient(clientAddr, playerName);
+    string res;
+    PlayerInfo pInfo;
+    if (cci.checkedType == FOUND_NAME) {
+        pInfo = clients[cci.result].pInfo;
+        res = cci.result;
+    }
+    if (cci.checkedType == FOUND_KEY) {
+        pInfo = clients[cci.key].pInfo;
+        res = cci.key;
+    }
+
+    if (cci.checkedType != NOT_FOUND) {
+        if (hasItem(pInfo.backpack, "Bomb") < 0) {
+            string sentMsg = "SYS[#] 你没有足够的 Bomb 埋放炸弹";
+            sendMessage(serverSock, sentMsg, clientAddr);
+            return;
+        }
+        if (pos < 0 || pos > 7) {
+            string sentMsg = "SYS[#] 这个位置不合理吧...";
+            sendMessage(serverSock, sentMsg, clientAddr);
+            return;
+        }
+        soil[pos].doubled = true;
+        soil[pos].owner = playerName;
+        soil[pos].damage ++;
+        cout << "[#] " << cci.result << " 翻倍了土块 " << (char) (pos + '0') << " 里的炸弹" << endl;
+        string sentMsg = "SYS[#] 你向土块 " + to_string(pos) + " 里埋入了一枚炸弹";
+        sendMessage(serverSock, sentMsg, clientAddr);
+        sentMsg = "SYS[@] " + cci.result + " 翻倍了土块 " + (char) (pos + '0') + " 里的炸弹！";
+        broadcastToClient(serverSock, sentMsg, playerName);
+        eraseItem(pInfo.backpack, "Bomb");
         clients[res].pInfo = pInfo;
         doSkip = true;
     }
@@ -666,8 +703,6 @@ void handlePlayer(SOCKET serverSock) {
         switch (causeOfD) {
             case BOMB:
                 deathMsg = " 跟土块爆了，就此倒地不起"; break;
-            case HOOK:
-                deathMsg = " 钓鱼的时候掉到水里了"; break;
             default:
                 deathMsg = " 倒地不起了"; break;
         }
