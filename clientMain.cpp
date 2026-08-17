@@ -1,6 +1,8 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "winmm.lib")
 #include <thread>
 #include <iostream>
 using namespace std;
@@ -75,6 +77,10 @@ void receiveMessage(SOCKET clientSock) {
 }
 void handleMessage(const string &message) {
     if (message.substr(0, 3) == "SYS") cout << message.substr(3) << endl;
+    if (message.substr(0, 5) == "SOUND") {
+        string soundN = message.substr(5);
+        PlaySound(("assets/sounds/" + soundN + ".wav").c_str(), NULL, SND_ASYNC | SND_FILENAME);
+    }
 }
 
 int main() {
