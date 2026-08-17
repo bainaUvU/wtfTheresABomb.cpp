@@ -14,3 +14,6 @@ add_custom_command(TARGET clientMain POST_BUILD
         ${CMAKE_SOURCE_DIR}/assets
         $<TARGET_FILE_DIR:clientMain>/assets
 )
+
+target_link_options(serverMain PRIVATE -static-libgcc -static-libstdc++)
+target_link_options(clientMain PRIVATE -static-libgcc -static-libstdc++)

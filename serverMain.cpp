@@ -784,6 +784,7 @@ void handlePlayer(SOCKET serverSock) {
 }
 
 int main() {
+    SetConsoleOutputCP(CP_UTF8);
     if (!initWinsock()) {
         cout << "你的Winsock好像只剩下8.6（有1.4了诶";
         return -1;
