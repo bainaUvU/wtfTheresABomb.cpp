@@ -93,27 +93,6 @@
     "git-widget-placeholder": "main"
   }
 }]]></component>
-  <component name="RunManager" selected="CMake 应用程序.clientMain">
-    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
-      <method v="2">
-        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="clientMain" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="wtfTheresABomb" TARGET_NAME="clientMain" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="wtfTheresABomb" RUN_TARGET_NAME="clientMain">
-      <method v="2">
-        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="serverMain" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="wtfTheresABomb" TARGET_NAME="serverMain" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="wtfTheresABomb" RUN_TARGET_NAME="serverMain">
-      <method v="2">
-        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
-      </method>
-    </configuration>
-    <list>
-      <item itemvalue="CMake 应用程序.clientMain" />
-      <item itemvalue="CMake 应用程序.serverMain" />
-    </list>
-  </component>
   <component name="SelectedDebugProfileService"><![CDATA[{
   "profileIdByStamp": [],
   "modificationCount": 1
