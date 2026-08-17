@@ -166,8 +166,10 @@ void flipSoil(SOCKET serverSock, const string &playerName, const sockaddr_in &cl
             if (pInfo.health <= 0) {
                 causeOfD = BOMB;
             }
+            broadcastToClient(serverSock, "SOUNDexplosion");
         } else {
             sentMsg = "SYS[#] 土块里什么都没有，无事发生捏";
+            broadcastToClient(serverSock, "SOUNDflip");
         }
         broadcastToClient(serverSock, sentMsg);
         cout << "[#] " << cci.result << " 翻开了土块" << endl;
@@ -212,6 +214,7 @@ void drawCard(SOCKET serverSock, const string &playerName, const sockaddr_in &cl
             pInfo.backpack.push_back(cRes);
             cardMsg += cRes + " ";
         }
+        broadcastToClient(serverSock, "SOUNDdrawCard");
         cout << "[#] " << cci.result << " 做了一次抽牌" << endl;
         broadcastToClient(serverSock, "SYS[@] " + cci.result + " 获得了 " + cardMsg);
         clients[res].pInfo = pInfo;
@@ -255,9 +258,17 @@ void doubleBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &
                 pInfo.health -= 1;
                 pInfo.sufferedDamage += 1;
                 clients[cci.result].pInfo = pInfo;
+                broadcastToClient(serverSock, "SOUNDexplosion");
+                doSkip = true;
+
+                causeOfD = -1;
+                if (pInfo.health <= 0) {
+                    causeOfD = BOMB;
+                }
                 return;
             }
         }
+        broadcastToClient(serverSock, "SOUNDbitSound");
         soil[pos].damage *= 2;
         soil[pos].doubled = true;
         soil[pos].owner = cci.result;
@@ -301,6 +312,7 @@ void metalDetect(SOCKET serverSock, const string &playerName, const sockaddr_in 
         sendMessage(serverSock, sentMsg, clientAddr);
         eraseItem(pInfo.backpack, "MetalDetector");
         clients[res].pInfo = pInfo;
+        sendMessage(serverSock, "SOUNDbitSound", clientAddr);
     }
 }
 void suspect(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr, const string &recipient) {
@@ -336,6 +348,7 @@ void suspect(SOCKET serverSock, const string &playerName, const sockaddr_in &cli
         sendMessage(serverSock, sentMsg, clientAddr);
         eraseItem(pInfo.backpack, "Magnifier");
         clients[res].pInfo = pInfo;
+        sendMessage(serverSock, "SOUNDbitSound", clientAddr);
     }
 }
 void getchItem(SOCKET serverSock, const string &playerName, const sockaddr_in &clientAddr, const string &recipient, const string &item) {
@@ -384,14 +397,15 @@ void getchItem(SOCKET serverSock, const string &playerName, const sockaddr_in &c
         cout << "[#] " << cci.result << " 使用了鱼钩试图偷走 " << recipient << " 的手牌 " + item << endl;
         if (hasItem(rPInfo.backpack, item) < 0) {
             string sentMsg = "SYS[#] 邪恶的 " + playerName + " 试图偷走 " + recipient + " 的 " + item + " ，然而 " + recipient + " 并没有这张牌";
-            sendMessage(serverSock, sentMsg, clientAddr);
+            broadcastToClient(serverSock, sentMsg);
         } else {
             pInfo.backpack.push_back(item);
             eraseItem(rPInfo.backpack, item);
             clients[res].pInfo = pInfo;
             string sentMsg = "SYS[#] " + playerName + " 偷走了 " + recipient + " 的 " + item + "！";
-            sendMessage(serverSock, sentMsg, clientAddr);
+            broadcastToClient(serverSock, sentMsg);
         }
+        broadcastToClient(serverSock, "SOUNDdrawCard");
         eraseItem(pInfo.backpack, "FishingHook");
         clients[res].pInfo = pInfo;
         doSkip = true;
@@ -421,6 +435,7 @@ void plantBomb(SOCKET serverSock, const string &playerName, const sockaddr_in &c
             sendMessage(serverSock, sentMsg, clientAddr);
             return;
         }
+        broadcastToClient(serverSock, "SOUNDbitSound");
         soil[pos].doubled = true;
         soil[pos].owner = playerName;
         soil[pos].damage ++;
@@ -547,13 +562,13 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
         }
     }
     if (command(message, "CHAT")) {
+        broadcastToClient(serverSock, "SOUNDboop");
         int msgLen = stoi(message.substr(4, 2));
         string msg = message.substr(6, msgLen);
         string playerName = message.substr(msgLen + 6);
         string sentMsg = "[@] " + playerName + " : " + msg;
         cout << sentMsg << endl;
         broadcastToClient(serverSock, "SYS" + sentMsg);
-        return;
     }
     if (command(message, "SHOWINFO")) {
         if (inGame) {
@@ -640,6 +655,7 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
                     broadcastToClient(serverSock, sentMsg);
                     eraseItem(pInfo.backpack, "MedKit");
                     clients[res].pInfo = pInfo;
+                    broadcastToClient(serverSock, "SOUNDdrawCard");
                     doSkip = true;
                 }
             }
@@ -672,6 +688,7 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
                     broadcastToClient(serverSock, sentMsg);
                     eraseItem(pInfo.backpack, "FryingPan");
                     clients[res].pInfo = pInfo;
+                    broadcastToClient(serverSock, "SOUNDdrawCard");
                     doSkip = true;
                 }
             }
@@ -693,6 +710,13 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
             string cd = message.substr(rnLen + 8, cdLen);
             string playerName = message.substr(rnLen + cdLen + 8);
             if (checkTurn(serverSock, playerName, clientAddr)) getchItem(serverSock, playerName, clientAddr, rn, cd);
+        } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
+    }
+    if (command(message, "BOMB")) {
+        if (inGame) {
+            int pos = message[4] - '0';
+            string playerName = message.substr(5);
+            if (checkTurn(serverSock, playerName, clientAddr)) plantBomb(serverSock, playerName, clientAddr, pos);
         } else sendMessage(serverSock, "SYS[#] 诶游戏还没开始呢！", clientAddr);
     }
     if (inGame) handlePlayer(serverSock);
@@ -790,13 +814,13 @@ int main() {
                 shuffledP.clear();
 
                 cout << "[@] 游戏开始！" << endl;
-                broadcastToClient(serverSock, "SYS[#] 游戏开始！\n" + PRINTLINE);
                 initSoil();
 
                 random_device rd;
                 mt19937 gen(rd());
                 uniform_int_distribution<> disCard(0, 100);
                 int cardNum = max(2, (int) (clients.size() / 2 + 1));
+                string sentMsg;
                 for (auto p : clients) {
                     shuffledP.push_back({p.first, p.second.name});
                     PlayerInfo pInfo = p.second.pInfo;
@@ -814,18 +838,19 @@ int main() {
                     }
                     clients[p.first].pInfo = pInfo;
 
-                    string sentMsg = p.second.name + " : 还有 " + to_string(p.second.pInfo.health) + " 点体力 \n";
-                    sentMsg += "> [@] 你还有手牌 ";
+                    sentMsg += p.second.name + " : 还有 " + to_string(p.second.pInfo.health) + " 点体力 \n";
+                    sentMsg += "> [@] Ta 还有手牌 ";
                     string consoleMsg = "[@] " + p.second.name + " 还有手牌 ";
                     for (auto &s : clients[p.first].pInfo.backpack) {
                         sentMsg += s + " ";
                         consoleMsg += s + " ";
                     }
-                    sentMsg += "\n" + PRINTLINE;
-                    sentMsg = "SYS[@] " + sentMsg;
-                    sendMessage(serverSock, sentMsg, p.second.addr);
+                    sentMsg += '\n';
                     cout << consoleMsg << endl;
                 }
+                sentMsg += PRINTLINE;
+                Sleep(160);
+                broadcastToClient(serverSock, "SYS[#] 游戏开始！\n" + PRINTLINE + "\n" + sentMsg);
                 inGame = true;
 
                 plrN = clients.size();

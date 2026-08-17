@@ -7,3 +7,10 @@ add_executable(serverMain serverMain.cpp)
 target_link_libraries(serverMain PRIVATE ws2_32)
 add_executable(clientMain clientMain.cpp)
 target_link_libraries(clientMain PRIVATE ws2_32)
+target_link_libraries(clientMain PRIVATE winmm)
+
+add_custom_command(TARGET clientMain POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:clientMain>/assets
+)
