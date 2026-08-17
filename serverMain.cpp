@@ -30,7 +30,7 @@ const map<string, Probability> CARD_POOL = {
 const string AVAILABLE_CARDS[] = {"Shovel", "Double", "MetalDetector", "MedKit", "FryingPan", "Magnifier", "FishingHook", "Bomb"};
 
 struct PlayerInfo {
-    int health = 1, score = 0;
+    int health = 5, score = 0;
     int sufferedDamage = 0;
     int causedDamage = 0;
     int damageReduction = 0;
@@ -397,7 +397,7 @@ void handleMessage(SOCKET serverSock, const string &message, sockaddr_in &client
         if (inGame) {
             for (int i = 0; i < shuffledP.size(); i ++) {
                 if (shuffledP[i].second == playerName) {
-                    if (playerName == shuffledP[i].second) doSkip = true;
+                    if (playerName == shuffledP[plrInd].second) doSkip = true;
                     shuffledP.erase(shuffledP.begin() + i);
                     break;
                 }
@@ -565,7 +565,7 @@ void handlePlayer(SOCKET serverSock) {
             clients[p.first].pInfo = pInfo;
         }
     }
-    if (remainP == 1) {
+    if (remainP == 1 || plrN == 0) {
         finished = true;
 
         PlayerInfo pInfo = clients[winnerKey].pInfo;
@@ -584,12 +584,13 @@ void handlePlayer(SOCKET serverSock) {
             else if (i == 2) sentMsg += "rd ";
             else sentMsg += "th ";
             sentMsg += playerList[i].first + " : 最终得分 " + to_string(playerList[i].second.pInfo.score);
-            sentMsg += " 共造成" + to_string(playerList[i].second.pInfo.causedDamage) + "点伤害，共收到 " + to_string(playerList[i].second.pInfo.sufferedDamage) + " 点伤害\n";
+            sentMsg += " 共造成 " + to_string(playerList[i].second.pInfo.causedDamage) + " 点伤害，共收到 " + to_string(playerList[i].second.pInfo.sufferedDamage) + " 点伤害\n";
         }
         sentMsg += PRINTLINE + "\n游戏结束，请自己退出.png";
         cout << sentMsg << endl;
         broadcastToClient(serverSock, "SYS" + sentMsg);
     } else if (doSkip) {
+        if (plrN <= 0) return;
         plrInd = (plrInd + 1) % plrN;
         while (plrInd >= 0 && clients[shuffledP[plrInd].first].pInfo.health <= 0) {
             plrInd = (plrInd + 1) % plrN;
